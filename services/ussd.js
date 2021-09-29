@@ -5,9 +5,13 @@ const { MongoClient } = require("mongodb");
 const ContractKit = require("@celo/contractkit");
 const { createWallet, getBalance, totalBalances } = require("../utils/generate-celo-address");
 const { UserInfo, userAddressFromDB, addUserInfo } = require("../model/schema");
+// Import coingecko-api
+const CoinGecko = require('coingecko-api');
 const crypto = require("crypto");
 const tinyURL = require("tinyurl");
-// const { credential } = require("firebase-admin");
+
+// Initiate the CoinGecko API Client
+const CoinGeckoClient = new CoinGecko();
 
 const alfatores = process.env.ALFAJORES;
 
@@ -27,14 +31,15 @@ router.post("/", async (req, res) => {
   if (text == "") {
     // This is the first request. Note how we start the response with CON
 
-    response += `Welcome to Canza Ecosystem!
+    response = `Welcome to Canza Ecosystem!
         What would you like to do?
         1. Create Account
         2. Check Balance
-        3. See Wallet Address
+        3. My Wallet Address
         4. Send Money
-        5. Input Number
-        `;
+        5. Current Market Price 
+        6. My Account`;
+
   } else if (text == "1") {
     const user = await userAddressFromDB(phoneNumber);
     // console.log("user infomation:", user[0].address)
@@ -94,27 +99,46 @@ router.post("/", async (req, res) => {
     }).catch(err => console.log(err))
 
   } else if (text == "5") {
-    response = `CON Input the Number \n`;
-  } else if (/5*/.test(text)) {
-    const number = text.split("*")[1];
-    const user = await userAddressFromDB(number);
-    if (user.length <= 0) {
-      const data = await createWallet();
+    response = await getMarkets()
+    // response = `CON Input the Number \n`;
+   } 
+  //else if (/5*/.test(text)) {
+  //   const number = text.split("*")[1];
+  //   const user = await userAddressFromDB(number);
+  //   if (user.length <= 0) {
+  //     const data = await createWallet();
 
-      console.log(data, "Wallet Created");
-      response = `END Wallet Address has been created
-      `;
-      addUserInfo({
-        address: data.address,
-        number,
-        privateKey: data.privateKey,
-      });
-    } else {
-      response = "END Canza Address Already Exist";
-    }
+  //     console.log(data, "Wallet Created");
+  //     response = `END Wallet Address has been created
+  //     `;
+  //     addUserInfo({ address: data.address, number,
+  //       privateKey: data.privateKey,
+  //     });
+  //   } else {
+  //     response = "END Canza Address Already Exist";
+  //   }
+  // }
+  // 6. Account Details
+  else if (data[0] == '6' && data[1] == null) {
+    response = `CON select account information you want to view`;
+    response += `1. Account Details`;
+    response += `2. Account balance`;
   }
   res.send(response);
 });
+
+// Make calls
+async function getMarkets() {
+  const params = {
+
+    order: CoinGecko.ORDER.MARKET_CAP_DESC,
+  }
+
+  const data = await CoinGeckoClient.coins.markets({params});
+  console.log('coin gecko apis', data)
+
+  return `End the market price for ethereum is: ${data}`
+};
 
 async function getAccountDetails(userMSISDN) {
   console.log("phone number",userMSISDN);
