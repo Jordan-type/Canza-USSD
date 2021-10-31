@@ -1,25 +1,26 @@
-require("dotenv").config();
 const express = require("express");
+const crypto = require('crypto')
+const CoinGecko = require('coingecko-api'); // coingecko-api
+const tinyURL = require("tinyurl");
+require('dotenv/config');
+
 const router = express.Router();
-const { MongoClient } = require("mongodb");
+// const CoinGeckoClient = new CoinGecko(); // initiate the CoinGecko API Client
+
+const { CoinGeckoClient } = require('coingecko-api-v3');  // initiate the CoinGecko API Client
+const client = new CoinGeckoClient({ timeout: 10000, autoRetry: true })
+
 const ContractKit = require("@celo/contractkit");
 const { createWallet, getBalance, totalBalances } = require("../utils/generate-celo-address");
-const { UserInfo, userAddressFromDB, addUserInfo } = require("../model/schema");
-// Import coingecko-api
-const CoinGecko = require('coingecko-api');
-const crypto = require("crypto");
-const tinyURL = require("tinyurl");
-
-// Initiate the CoinGecko API Client
-const CoinGeckoClient = new CoinGecko();
+// const { UserInfo, userAddressFromDB, addUserInfo } = require("../models/users");
+const { userAddress, addUser } = require('./user.services')
 
 const alfatores = process.env.ALFAJORES;
-
 const kit = ContractKit.newKit(alfatores);
 // console.log("celo connection", kit);
 
-// Mongo DB
-const uri = process.env.URI;
+// variable
+const iv = Buffer.from('81dFxOpX7BPG1UpZQPcS6w==', 'base64')
 
 router.post("/", async (req, res) => {
   // console.log("my req body is", req.body);
@@ -31,46 +32,62 @@ router.post("/", async (req, res) => {
   if (text == "") {
     // This is the first request. Note how we start the response with CON
 
-    response = `Welcome to Canza Ecosystem!
+    response = `CON Welcome to Canza Ecosystem!
         What would you like to do?
         1. Create Account
-        2. Check Balance
-        3. My Wallet Address
+        2. Deposit Funds
+        3. Withdraw Cash
         4. Send Money
         5. Current Market Price 
         6. My Account`;
 
   } else if (text == "1") {
-    const user = await userAddressFromDB(phoneNumber);
+    const user = await userAddress(phoneNumber);
     // console.log("user infomation:", user[0].address)
     if (user.length <= 0) {
       const data = await createWallet();
       
-      console.log("Wallet Created", data);
+      // console.log("Wallet Created", data);
 
-      response = `END Wallet Address has been created`;
-      addUserInfo({ address: data.address, phoneNumber, privateKey: data.privateKey });
+      response = `END Your wallet Address has been created`;
+      addUser({ address: data.address, phoneNumber, privateKey: data.privateKey });
 
     } else {
-       response = "END Canza Address Already Exist";
+       response = "END USSD Address Already Exist";
     }
+  } 
+  // 2. Deposit funds
+  else if ( data[0] == '2' && data[1] == null) {
+    response = `CON Select currency to deposit:
+                1. cUSD`;
+  } else if ( data[0] == '2' && data[1] == 1) {
+    response = `CON Enter amount to deposit`
+  } else if (data[0] == '2' && data[1] == 2 && data [2] !== '') {
+    response = `END You will receive a text with a link to deposit cUSD`;
 
-    // wallet();
-  } else if (text == "2") {
-    // get Balance
-    // const phoneBalance = await userAddressFromDB(phoneNumber);
-    // const balance = await getBalance(phoneBalance[0].address);
-    response = await getAccountBalance(phoneNumber)
-    // response = `END Your Canza Address Balance \n ${mybalance}`;
-  } else if (text === "3") {
-    // checkAddress if account exits 
-    // const user = await userAddressFromDB(phoneNumber);
-    // let userMSISDN = phoneNumber.substring(1);
-    
-    response = await getAccountDetails(phoneNumber);
+    // user datails 
+    const userMSISDN = phoneNumber;
+    const txamount = data[2];
 
+
+
+  }
+  
+  // withdraw funds
+  else if (data[0] == '3' && data[1] == null) {
+    response = `CON Enter Amount to Withdraw`;
+  } else if (data[0] == '3' && data[1] !== ''){
+    let withdrawMSISDN = phoneNumber;
+    let kshAmount =    data[1]; // amount to receive in Ksh
+    let _kshAmount =  formartNumber(kshAmount, 2)// format to 2 decimals
+    console.log(_kshAmount)
+    let userWithdraw = await userAddress(withdrawMSISDN);
+
+
+  }
+  
   // send money and transfer funds 
-  } else if (data[0] == '4' && data[1] == null) {
+  else if (data[0] == '4' && data[1] == null) {
     response = `CON Enter Recipient`;
   } else if (data[0] == '4' && data[1] !== '' && data[2] == null){
     response = `CON Enter Amount to send`;
@@ -89,7 +106,6 @@ router.post("/", async (req, res) => {
     // console.log('recipientId:', recipientId)
     transfercUSD(senderMSISDN, receiverMSISDN, amount)
 
-
     Promise.all()
     .then(result => console.log(result))
     .then(() => transfercUSD(senderMSISDN, receiverMSISDN, amount))
@@ -98,52 +114,96 @@ router.post("/", async (req, res) => {
       console.log('PhoneNumber:', senderMSISDN)
     }).catch(err => console.log(err))
 
-  } else if (text == "5") {
-    response = await getMarkets()
-    // response = `CON Input the Number \n`;
-   } 
-  //else if (/5*/.test(text)) {
-  //   const number = text.split("*")[1];
-  //   const user = await userAddressFromDB(number);
-  //   if (user.length <= 0) {
-  //     const data = await createWallet();
+  } 
+  // 5. Coingecko Market Data
+  else if (data[0] == '5' && data[1] == null ) {
+    response = `CON select any to view current market data
+                1. Bitcoin Current Price
+                2. Etherum Currrent Price
+                3. Celo Currrent Price
+                `;
+      }
+    else if ( data[0] == '5' && data[1] == '1') {
+      const btc_ngn_usd = await client.simplePrice({ ids: ['bitcoin', 'bitcoin'], vs_currencies: ['ngn', 'usd'] })
 
-  //     console.log(data, "Wallet Created");
-  //     response = `END Wallet Address has been created
-  //     `;
-  //     addUserInfo({ address: data.address, number,
-  //       privateKey: data.privateKey,
-  //     });
-  //   } else {
-  //     response = "END Canza Address Already Exist";
-  //   }
-  // }
+      console.log("==>", btc_ngn_usd.bitcoin.ngn)
+      
+      // bitcion market price in both Naira and USD
+      let btc_price_ngn = formartNumber(btc_ngn_usd.bitcoin.ngn, 2)
+      let btc_price_usd = formartNumber(btc_ngn_usd.bitcoin.usd, 2)
+      
+      response = `END 1 BTC is: ` +btc_price_ngn+ ` Naira and ` +btc_price_usd+ ` USD`;
+    }
+    else if ( data[0] == '5' && data[1] == '2') {
+      const eth_ngn_usd = await client.simplePrice({ ids: ['ethereum', 'ethereum'], vs_currencies: ['ngn', 'usd'] }) 
+      console.log('eth==>', eth_ngn_usd)
+      
+      // ethereum market price in both Naira and USD
+      let eth_price_ngn = formartNumber(eth_ngn_usd.ethereum.ngn, 2)
+      let eth_price_usd = formartNumber(eth_ngn_usd.ethereum.usd, 2)
+      
+      response = `END 1 ETH is: ` +eth_price_ngn+ ` Naira and ` +eth_price_usd+ ` USD`;
+    }
+    else if ( data[0] == '5' && data[1] == '3') {
+      const celo_ngn_usd = await client.simplePrice({ ids: ['celo', 'celo'], vs_currencies: ['ngn', 'usd'] })
+      
+      // celo market price in both Naira and USD
+      let celo_price_ngn = formartNumber(celo_ngn_usd.celo.ngn, 2)
+      let celo_price_usd = formartNumber(celo_ngn_usd.celo.usd, 2)
+      
+      response = `END 1 CELO is: ` +celo_price_ngn+ ` Naira and ` +celo_price_usd+ ` USD`;
+    }
   // 6. Account Details
   else if (data[0] == '6' && data[1] == null) {
-    response = `CON select account information you want to view`;
-    response += `1. Account Details`;
-    response += `2. Account balance`;
+    response = `CON select account information you want to view
+               1. Account Details
+               2. Account balance
+               3. Account Backup`;
+  } else if ( data[0] == '6' && data[1] == '1') {
+    response = await getAccountDetails(phoneNumber)
+  } else if (data[0] == '6' && data[1] == '2') {
+    response = await getAccountBalance(phoneNumber)
+  } else if ( data[0] == '6' && data[1] == '3') {
+    response = await getSeed(phoneNumber)
   }
+  res.set('Content-Type: text/plain')
   res.send(response);
 });
 
-// Make calls
+// make calls to coin gecko
 async function getMarkets() {
-  const params = {
 
-    order: CoinGecko.ORDER.MARKET_CAP_DESC,
-  }
+  const btc_ngn_usd = await CoinGeckoClient.simple.price({ ids: ['bitcoin', 'bitcoin'], vs_currencies: ['ngn', 'usd'] })
+  const eth_ngn_usd = await CoinGeckoClient.simple.price({ ids: ['ethereum', 'ethereum'], vs_currencies: ['ngn', 'usd'] })
+  const celo_ngn_usd = await CoinGeckoClient.simple.price({ ids: ['celo', 'celo'], vs_currencies: ['ngn', 'usd'] })
 
-  const data = await CoinGeckoClient.coins.markets({params});
-  console.log('coin gecko apis', data)
+  // formarted to 2 decimals
+  let btc_price_ngn = formartNumber(btc_ngn_usd.data.bitcoin.ngn, 2)
+  let btc_price_usd = formartNumber(btc_ngn_usd.data.bitcoin.usd, 2)
 
-  return `End the market price for ethereum is: ${data}`
+  let eth_price_ngn = formartNumber(eth_ngn_usd.data.ethereum.ngn, 2)
+  let eth_price_usd = formartNumber(eth_ngn_usd.data.ethereum.usd, 2)
+
+  let celo_price_ngn = formartNumber(celo_ngn_usd.data.celo.ngn, 2)
+  let celo_price_usd = formartNumber(celo_ngn_usd.data.celo.usd, 2)
+  
+  console.log('coin gecko apis', btc_price_ngn, eth_price_ngn, celo_price_ngn, btc_price_usd, eth_price_usd, celo_price_usd,)
+
+  return `End ${btc_price_ngn} Naira`
 };
 
+// format to 2 decimal places
+function formartNumber(val, decimals) {
+  val = parseFloat(val)
+  return val.toFixed(decimals)
+}
+
+
 async function getAccountDetails(userMSISDN) {
-  console.log("phone number",userMSISDN);
+  console.log("phone number", userMSISDN);
   
-  const user = await userAddressFromDB(userMSISDN);
+  const user = await userAddress(userMSISDN);
+  console.log('user data', user)
   let accountAddress = user[0].address
 
   console.log('account yangu', accountAddress)
@@ -154,11 +214,37 @@ async function getAccountDetails(userMSISDN) {
   ...Account Address is: ${url}`;
 }
 
+// seed words
+async function getSeed(userMSISDN) {
+  const user = await userAddress(userMSISDN)
+  let accountSeed = user[0].privateKey
+  // let seed_word = await decryptcypher(accountSeed, userMSISDN, iv)
+
+  return `END Your Recovery Phrase is:\n ${accountSeed}`
+
+}
+
+// function getEncryptKey(userMSISDN){    
+//   // const hash_fn = functions.config().env.algo.key_hash;
+//   let key = crypto.createHash('sha256').update(userMSISDN).digest('hex');
+//   return key;
+// }
+
+// // decrpt seed word
+// async function decryptcypher(encrypted, userMSISDN, iv) {
+//   let key = await getEncryptKey(userMSISDN);
+//   const decipher = crypto.createDecipheriv('aes192', key, iv);
+//   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+//   decrypted += decipher.final('utf8');
+//   return decrypted;
+// }
+
+
 //  account balance
 async function getAccountBalance(userMSISDN) {
   console.log("phone balance..", userMSISDN);
 
-  const user = await userAddressFromDB(userMSISDN);
+  const user = await userAddress(userMSISDN);
   let accountaddress = user[0].address
   console.log('my address:', accountaddress)
 
@@ -174,13 +260,13 @@ async function getAccountBalance(userMSISDN) {
 
   return `END Your Account Balance is:
           Celo Dollar: ${cUSDBalance} cUSD
-          Celo Gold: ${cGoldBalance} cGLD`
+          Celo: ${cGoldBalance} CELO`
 }
 
 // details
 async function getReceiverDetails(recipientId) {
 
-  let user = await userAddressFromDB(recipientId)
+  let user = await userAddress(recipientId)
   console.log('user info is:', user)
 
 }
@@ -226,12 +312,12 @@ function getRecipient(phoneNumber) {
 
 async function transfercUSD(senderId, recipientId, amount) {
   try {
-    const user = await userAddressFromDB(senderId)
+    const user = await userAddress(senderId)
     let senderInfo = user[0].address;
     let senderKey = user[0].privateKey
     console.log("sender Address:", senderInfo)
 
-    const userDoc = await userAddressFromDB(recipientId)
+    const userDoc = await userAddress(recipientId)
     let receiverInfo =  userDoc[0].address
     console.log('Receiver Adress: ', receiverInfo)
 
@@ -285,9 +371,14 @@ async function sendcUSD(sender, receiver, amount, privatekey) {
 }
 
 const getSenderDetails = async (senderId) => {
-  const user = await userAddressFromDB(senderId);
+  const user = await userAddress(senderId);
   console.log("my address is:", user[0].address);
 };
+
+
+async function checkIfUserExists(userId, userMSIDN){
+  
+}
 
 
 //  check if user or sender exists
